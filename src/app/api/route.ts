@@ -8,7 +8,7 @@ let gameState: GameState = {
 };
 
 export async function POST(req: NextRequest) {
-    const {direction, username} = await req.json();
+    const {direction, username, score} = await req.json();
 
     if (direction === 'reset') {
         gameState = {
@@ -16,6 +16,12 @@ export async function POST(req: NextRequest) {
             score: 0,
         };
         return NextResponse.json(gameState);
+    }
+
+    if (direction === 'save-score') {
+        // Save score and return success
+        saveScore(score || gameState.score, username);
+        return NextResponse.json({ success: true });
     }
 
     // Process the user's requested direction (accept all inputs)

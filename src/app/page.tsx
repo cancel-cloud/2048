@@ -121,11 +121,31 @@ const Home = () => {
                 }
             } else {
                 console.error('Invalid response structure:', response.data);
-                setError('Failed to process move. Please try again.');
+                // Treat invalid responses as potential game-over situations
+                // Save score before setting game over
+                const username = getCurrentUsername();
+                try {
+                    await axios.post('/api', { direction: 'save-score', score, username });
+                } catch (saveError) {
+                    console.warn('Failed to save score on invalid response:', saveError);
+                }
+                setGameOver(true);
+                // Force refresh of scores to show the new entry
+                window.dispatchEvent(new CustomEvent('scoresUpdated'));
             }
         } catch (error) {
             console.error('Error handling move:', error);
-            setError('Move failed. Please try again.');
+            // Treat network/API errors as potential game-over situations
+            // Save score before setting game over
+            const username = getCurrentUsername();
+            try {
+                await axios.post('/api', { direction: 'save-score', score, username });
+            } catch (saveError) {
+                console.warn('Failed to save score on error:', saveError);
+            }
+            setGameOver(true);
+            // Force refresh of scores to show the new entry  
+            window.dispatchEvent(new CustomEvent('scoresUpdated'));
         } finally {
             setIsLoading(false);
         }
@@ -181,6 +201,7 @@ const Home = () => {
             <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
                 <div className="bg-white p-6 rounded-lg shadow-lg text-center">
                     <h2 className="text-2xl font-bold mb-4">Game Over</h2>
+                    <p className="mb-2">No moves left. Final score has been saved.</p>
                     <p className="mb-4">Your score: {score}</p>
                     <button
                         className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
