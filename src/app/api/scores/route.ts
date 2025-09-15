@@ -1,4 +1,4 @@
-// src/app/api/route.ts
+// src/app/api/scores/route.ts
 import {NextRequest, NextResponse} from 'next/server';
 import fs from 'fs';
 import path from 'path';
