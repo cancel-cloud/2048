@@ -1,6 +1,7 @@
 // src/app/api/route.ts
 import {NextRequest, NextResponse} from 'next/server';
-import {bestMove, checkGameOver, GameState, generateInitialBoard, move, saveScore} from '../../helpers/gameLogic';
+import {bestMove, checkGameOver, GameState, generateInitialBoard, move} from '../../helpers/gameLogic';
+import {createScoreStore} from '../../helpers/scoreStore';
 
 let gameState: GameState = {
     board: generateInitialBoard(),
@@ -8,7 +9,7 @@ let gameState: GameState = {
 };
 
 export async function POST(req: NextRequest) {
-    const {direction, username, score} = await req.json();
+    const {direction, username} = await req.json();
 
     if (direction === 'reset') {
         gameState = {
@@ -16,12 +17,6 @@ export async function POST(req: NextRequest) {
             score: 0,
         };
         return NextResponse.json(gameState);
-    }
-
-    if (direction === 'save-score') {
-        // Save score and return success
-        await saveScore(score || gameState.score, username);
-        return NextResponse.json({ success: true });
     }
 
     // Process the user's requested direction (accept all inputs)
@@ -38,7 +33,18 @@ export async function POST(req: NextRequest) {
 
     // Check for game over after move and tile spawn
     if (checkGameOver(gameState.board)) {
-        await saveScore(gameState.score, username);
+        // Save score on game over
+        try {
+            const store = createScoreStore();
+            const entry = {
+                timestamp: new Date().toISOString(),
+                score: gameState.score,
+                username
+            };
+            await store.addScore(entry);
+        } catch (error) {
+            console.error('Failed to save score on game over:', error);
+        }
         return NextResponse.json({...gameState, gameOver: true});
     }
 

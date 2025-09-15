@@ -119,7 +119,12 @@ export const bestMove = (board: number[][]): string => {
 export const saveScore = async (score: number, username?: string): Promise<void> => {
     const { createScoreStore } = await import('./scoreStore');
     const store = createScoreStore();
-    await store.saveScore(score, username);
+    const entry = {
+        timestamp: new Date().toISOString(),
+        score,
+        username
+    };
+    await store.addScore(entry);
 };
 
 export const checkGameOver = (board: number[][]): boolean => {

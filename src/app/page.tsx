@@ -45,6 +45,21 @@ const Home = () => {
         }
     };
 
+    const saveScoreToAPI = async (scoreToSave: number, username: string, runId?: string) => {
+        try {
+            await axios.post('/api/score', {
+                timestamp: new Date().toISOString(),
+                score: scoreToSave,
+                username: username || undefined,
+                runId
+            });
+            // Force refresh of scores to show the new entry
+            window.dispatchEvent(new CustomEvent('scoresUpdated'));
+        } catch (error) {
+            console.warn('Failed to save score:', error);
+        }
+    };
+
     const initializeGame = useCallback(async () => {
         try {
             setIsLoading(true);
@@ -52,16 +67,9 @@ const Home = () => {
             
             // Save score on reset if score > 0 and not already saved this session
             if (score > 0 && !scoreSavedThisSession) {
-                try {
-                    await axios.post('/api', {
-                        direction: 'save-score',
-                        score: score,
-                        username: currentUsername
-                    });
-                    setScoreSavedThisSession(true);
-                } catch (saveError) {
-                    console.warn('Failed to save score on reset:', saveError);
-                }
+                const username = getCurrentUsername();
+                await saveScoreToAPI(score, username, `reset-${Date.now()}`);
+                setScoreSavedThisSession(true);
             }
             
             const response = await axios.post<GameState>('/api', {direction: 'reset'});
@@ -81,7 +89,7 @@ const Home = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [score, scoreSavedThisSession, currentUsername]);
+    }, [score, scoreSavedThisSession]); // Removed currentUsername as it's accessed via getCurrentUsername()
 
     useEffect(() => {
         initializeGame();
@@ -133,7 +141,7 @@ const Home = () => {
                 setScore(response.data.score);
                 if (response.data.gameOver) {
                     setGameOver(true);
-                    setScoreSavedThisSession(true); // Mark as saved
+                    setScoreSavedThisSession(true); // Mark as saved (API handles saving)
                     // Force refresh of scores to show the new entry
                     window.dispatchEvent(new CustomEvent('scoresUpdated'));
                 }
@@ -142,30 +150,18 @@ const Home = () => {
                 // Treat invalid responses as potential game-over situations
                 // Save score before setting game over
                 const username = getCurrentUsername();
-                try {
-                    await axios.post('/api', { direction: 'save-score', score, username });
-                } catch (saveError) {
-                    console.warn('Failed to save score on invalid response:', saveError);
-                }
+                await saveScoreToAPI(score, username, `error-${Date.now()}`);
                 setGameOver(true);
                 setScoreSavedThisSession(true); // Mark as saved
-                // Force refresh of scores to show the new entry
-                window.dispatchEvent(new CustomEvent('scoresUpdated'));
             }
         } catch (error) {
             console.error('Error handling move:', error);
             // Treat network/API errors as potential game-over situations
             // Save score before setting game over
             const username = getCurrentUsername();
-            try {
-                await axios.post('/api', { direction: 'save-score', score, username });
-            } catch (saveError) {
-                console.warn('Failed to save score on error:', saveError);
-            }
+            await saveScoreToAPI(score, username, `error-${Date.now()}`);
             setGameOver(true);
             setScoreSavedThisSession(true); // Mark as saved
-            // Force refresh of scores to show the new entry  
-            window.dispatchEvent(new CustomEvent('scoresUpdated'));
         } finally {
             setIsLoading(false);
         }
