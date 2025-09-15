@@ -29,6 +29,8 @@ const Home = () => {
     const [autoMove, setAutoMove] = useState<boolean>(false);
     const [isMobile, setIsMobile] = useState<boolean>(false);
     const [gameOver, setGameOver] = useState<boolean>(false);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         initializeGame();
@@ -41,7 +43,7 @@ const Home = () => {
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (!gameOver) {
+            if (!gameOver && !isLoading) {
                 switch (event.key) {
                     case 'ArrowUp':
                         handleMove('up');
@@ -63,10 +65,13 @@ const Home = () => {
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, [gameOver]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gameOver, isLoading]);
 
     const initializeGame = async () => {
         try {
+            setIsLoading(true);
+            setError(null);
             const response = await axios.post<GameState>('/api', {direction: 'reset'});
             console.log('API Response:', response.data);
             if (response.data && response.data.board) {
@@ -75,14 +80,22 @@ const Home = () => {
                 setGameOver(false);
             } else {
                 console.error('Invalid response structure:', response.data);
+                setError('Failed to initialize game. Please try again.');
             }
         } catch (error) {
             console.error('Error initializing game:', error);
+            setError('Failed to initialize game. Please check your connection.');
+        } finally {
+            setIsLoading(false);
         }
     };
 
     const handleMove = async (direction: string) => {
+        if (isLoading) return; // Prevent moves while loading
+        
         try {
+            setIsLoading(true);
+            setError(null);
             const response = await axios.post<GameState>('/api', {direction});
             console.log('API Response:', response.data);
             if (response.data && response.data.board) {
@@ -93,15 +106,38 @@ const Home = () => {
                 }
             } else {
                 console.error('Invalid response structure:', response.data);
+                setError('Failed to process move. Please try again.');
             }
         } catch (error) {
             console.error('Error handling move:', error);
+            setError('Failed to process move. Please check your connection.');
+        } finally {
+            setIsLoading(false);
         }
     };
 
     const renderBoard = () => {
+        if (error) {
+            return (
+                <div className="flex flex-col items-center justify-center p-8 bg-red-100 rounded-lg">
+                    <p className="text-red-600 mb-4">{error}</p>
+                    <button
+                        className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded button-hover"
+                        onClick={initializeGame}
+                    >
+                        Try Again
+                    </button>
+                </div>
+            );
+        }
+
         if (!Array.isArray(board) || board.length === 0) {
-            return <div>Loading...</div>;
+            return (
+                <div className="flex items-center justify-center p-8">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-2048-title"></div>
+                    <span className="ml-4 text-2048-title">Loading game...</span>
+                </div>
+            );
         }
 
         const tileSize = isMobile ? '20vw' : '100px';
@@ -109,7 +145,7 @@ const Home = () => {
         return (
             <div
                 id="board"
-                className="grid grid-cols-4 gap-2 bg-2048-board rounded-lg shadow-md"
+                className={`grid grid-cols-4 gap-2 bg-2048-board rounded-lg shadow-md game-container ${isLoading ? 'loading' : ''}`}
                 style={{width: isMobile ? '80vw' : '450px', height: isMobile ? '80vw' : '450px'}}
             >
                 {board.flat().map((tile, index) => (
@@ -143,13 +179,14 @@ const Home = () => {
     };
 
     useEffect(() => {
-        if (autoMove && !gameOver) {
+        if (autoMove && !gameOver && !isLoading) {
             const interval = setInterval(() => {
                 handleMove('best');
             }, 500);
             return () => clearInterval(interval);
         }
-    }, [autoMove, gameOver]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [autoMove, gameOver, isLoading]);
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen py-2 bg-2048-bg">
@@ -164,14 +201,16 @@ const Home = () => {
                 {renderBoard()}
                 <div className="flex flex-col space-y-2 md:space-y-0 md:space-x-4 md:flex-row">
                     <button
-                        className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                        className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={() => handleMove('best')}
+                        disabled={isLoading || gameOver}
                     >
-                        Next Move
+                        {isLoading ? 'Processing...' : 'Next Move'}
                     </button>
                     <button
-                        className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+                        className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={initializeGame}
+                        disabled={isLoading}
                     >
                         Reset
                     </button>
@@ -181,6 +220,7 @@ const Home = () => {
                             className="form-checkbox h-5 w-5 text-green-600"
                             checked={autoMove}
                             onChange={() => setAutoMove(!autoMove)}
+                            disabled={isLoading || gameOver}
                         />
                         <span className="ml-2 text-gray-700">Auto</span>
                     </label>
@@ -188,26 +228,30 @@ const Home = () => {
                 {isMobile && (
                     <div className="fixed inset-x-0 bottom-0 flex justify-around p-4 bg-2048-bg">
                         <button
-                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50"
                             onClick={() => handleMove('up')}
+                            disabled={isLoading || gameOver}
                         >
                             ↑
                         </button>
                         <button
-                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50"
                             onClick={() => handleMove('left')}
+                            disabled={isLoading || gameOver}
                         >
                             ←
                         </button>
                         <button
-                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50"
                             onClick={() => handleMove('right')}
+                            disabled={isLoading || gameOver}
                         >
                             →
                         </button>
                         <button
-                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50"
                             onClick={() => handleMove('down')}
+                            disabled={isLoading || gameOver}
                         >
                             ↓
                         </button>
