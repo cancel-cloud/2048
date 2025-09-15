@@ -1,6 +1,6 @@
 // src/app/page.tsx
 'use client';
-import {useEffect, useState} from 'react';
+import {useEffect, useState, useCallback} from 'react';
 import axios from 'axios';
 import Head from 'next/head';
 import {GameState} from '@/helpers/gameLogic';
@@ -33,6 +33,55 @@ const Home = () => {
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     const [currentUsername, setCurrentUsername] = useState<string>('');
+    const [scoreSavedThisSession, setScoreSavedThisSession] = useState<boolean>(false);
+
+    // Function to get current username from localStorage
+    const getCurrentUsername = (): string => {
+        try {
+            return localStorage.getItem('username') || '';
+        } catch (error) {
+            console.warn('Error reading username from localStorage:', error);
+            return '';
+        }
+    };
+
+    const initializeGame = useCallback(async () => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            
+            // Save score on reset if score > 0 and not already saved this session
+            if (score > 0 && !scoreSavedThisSession) {
+                try {
+                    await axios.post('/api', {
+                        direction: 'save-score',
+                        score: score,
+                        username: currentUsername
+                    });
+                    setScoreSavedThisSession(true);
+                } catch (saveError) {
+                    console.warn('Failed to save score on reset:', saveError);
+                }
+            }
+            
+            const response = await axios.post<GameState>('/api', {direction: 'reset'});
+            console.log('API Response:', response.data);
+            if (response.data && response.data.board) {
+                setBoard(response.data.board);
+                setScore(response.data.score);
+                setGameOver(false);
+                setScoreSavedThisSession(false); // Reset for new game session
+            } else {
+                console.error('Invalid response structure:', response.data);
+                setError('Failed to initialize game. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error initializing game:', error);
+            setError('Failed to initialize game. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    }, [score, scoreSavedThisSession, currentUsername]);
 
     useEffect(() => {
         initializeGame();
@@ -41,7 +90,7 @@ const Home = () => {
         return () => {
             window.removeEventListener('resize', () => detectDevice(setIsMobile));
         };
-    }, []);
+    }, [initializeGame]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -70,38 +119,6 @@ const Home = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [gameOver, isLoading]);
 
-    const initializeGame = async () => {
-        try {
-            setIsLoading(true);
-            setError(null);
-            const response = await axios.post<GameState>('/api', {direction: 'reset'});
-            console.log('API Response:', response.data);
-            if (response.data && response.data.board) {
-                setBoard(response.data.board);
-                setScore(response.data.score);
-                setGameOver(false);
-            } else {
-                console.error('Invalid response structure:', response.data);
-                setError('Failed to initialize game. Please try again.');
-            }
-        } catch (error) {
-            console.error('Error initializing game:', error);
-            setError('Failed to initialize game. Please try again.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // Function to get current username from localStorage
-    const getCurrentUsername = (): string => {
-        try {
-            return localStorage.getItem('username') || '';
-        } catch (error) {
-            console.warn('Error reading username from localStorage:', error);
-            return '';
-        }
-    };
-
     const handleMove = async (direction: string) => {
         if (isLoading) return; // Prevent moves while loading
         
@@ -116,6 +133,7 @@ const Home = () => {
                 setScore(response.data.score);
                 if (response.data.gameOver) {
                     setGameOver(true);
+                    setScoreSavedThisSession(true); // Mark as saved
                     // Force refresh of scores to show the new entry
                     window.dispatchEvent(new CustomEvent('scoresUpdated'));
                 }
@@ -130,6 +148,7 @@ const Home = () => {
                     console.warn('Failed to save score on invalid response:', saveError);
                 }
                 setGameOver(true);
+                setScoreSavedThisSession(true); // Mark as saved
                 // Force refresh of scores to show the new entry
                 window.dispatchEvent(new CustomEvent('scoresUpdated'));
             }
@@ -144,6 +163,7 @@ const Home = () => {
                 console.warn('Failed to save score on error:', saveError);
             }
             setGameOver(true);
+            setScoreSavedThisSession(true); // Mark as saved
             // Force refresh of scores to show the new entry  
             window.dispatchEvent(new CustomEvent('scoresUpdated'));
         } finally {
@@ -198,17 +218,25 @@ const Home = () => {
 
     const renderDeathScreen = () => {
         return (
-            <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-                <div className="bg-white p-6 rounded-lg shadow-lg text-center">
-                    <h2 className="text-2xl font-bold mb-4">Game Over</h2>
-                    <p className="mb-2">No moves left. Final score has been saved.</p>
-                    <p className="mb-4">Your score: {score}</p>
-                    <button
-                        className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
-                        onClick={initializeGame}
-                    >
-                        Reset
-                    </button>
+            <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+                <div className="bg-white p-6 rounded-lg shadow-lg text-center max-w-sm mx-4">
+                    <h2 className="text-2xl font-bold mb-4 text-gray-800">Game Over</h2>
+                    <p className="mb-2 text-gray-600">No moves left. Final score has been saved.</p>
+                    <p className="mb-6 text-lg font-semibold text-gray-800">Your score: {score}</p>
+                    <div className="flex space-x-3 justify-center">
+                        <button
+                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                            onClick={initializeGame}
+                        >
+                            Try Again
+                        </button>
+                        <button
+                            className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+                            onClick={() => setGameOver(false)}
+                        >
+                            Close
+                        </button>
+                    </div>
                 </div>
             </div>
         );

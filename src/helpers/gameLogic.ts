@@ -116,10 +116,10 @@ export const bestMove = (board: number[][]): string => {
     return directions[Math.floor(Math.random() * directions.length)];
 };
 
-export const saveScore = (score: number, username?: string): void => {
-    const filePath = path.join(process.cwd(), 'scores.csv');
-    const csvLine = `${new Date().toISOString()},${score}${username ? `,${username}` : ''}\n`;
-    fs.appendFileSync(filePath, csvLine);
+export const saveScore = async (score: number, username?: string): Promise<void> => {
+    const { createScoreStore } = await import('./scoreStore');
+    const store = createScoreStore();
+    await store.saveScore(score, username);
 };
 
 export const checkGameOver = (board: number[][]): boolean => {

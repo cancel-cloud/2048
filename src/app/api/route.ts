@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
 
     if (direction === 'save-score') {
         // Save score and return success
-        saveScore(score || gameState.score, username);
+        await saveScore(score || gameState.score, username);
         return NextResponse.json({ success: true });
     }
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
     // Check for game over after move and tile spawn
     if (checkGameOver(gameState.board)) {
-        saveScore(gameState.score, username);
+        await saveScore(gameState.score, username);
         return NextResponse.json({...gameState, gameOver: true});
     }
 
