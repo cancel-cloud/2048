@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(gameState);
     }
 
+    // Process the user's requested direction (accept all inputs)
     let moveResult;
     if (direction === 'best') {
         const bestDirection = bestMove(gameState.board);
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
     gameState.board = moveResult.board;
     gameState.score += moveResult.score;
 
+    // Check for game over after move and tile spawn
     if (checkGameOver(gameState.board)) {
         saveScore(gameState.score, username);
         return NextResponse.json({...gameState, gameOver: true});

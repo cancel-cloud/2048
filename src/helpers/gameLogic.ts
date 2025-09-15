@@ -71,9 +71,8 @@ export const move = (board: number[][], direction: string): { board: number[][],
             break;
     }
 
-    if (moved) {
-        addRandomTile(rotated);
-    }
+    // Always spawn a tile after processing user input, regardless of whether the board changed
+    addRandomTile(rotated);
 
     return {board: rotated, score, moved};
 };

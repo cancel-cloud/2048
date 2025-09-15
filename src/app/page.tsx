@@ -86,7 +86,7 @@ const Home = () => {
             }
         } catch (error) {
             console.error('Error initializing game:', error);
-            setError('Failed to initialize game. Please check your connection.');
+            setError('Failed to initialize game. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -125,7 +125,7 @@ const Home = () => {
             }
         } catch (error) {
             console.error('Error handling move:', error);
-            setError('Failed to process move. Please check your connection.');
+            setError('Move failed. Please try again.');
         } finally {
             setIsLoading(false);
         }
