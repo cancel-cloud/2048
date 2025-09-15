@@ -117,9 +117,9 @@ export const bestMove = (board: number[][]): string => {
     return directions[Math.floor(Math.random() * directions.length)];
 };
 
-export const saveScore = (score: number): void => {
+export const saveScore = (score: number, username?: string): void => {
     const filePath = path.join(process.cwd(), 'scores.csv');
-    const csvLine = `${new Date().toISOString()},${score}\n`;
+    const csvLine = `${new Date().toISOString()},${score}${username ? `,${username}` : ''}\n`;
     fs.appendFileSync(filePath, csvLine);
 };
 

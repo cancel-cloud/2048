@@ -6,22 +6,35 @@ import axios from 'axios';
 interface Score {
     timestamp: string;
     score: number;
+    username?: string; // Optional for backward compatibility
 }
 
 const RecentScores = () => {
     const [scores, setScores] = useState<Score[]>([]);
 
+    const fetchScores = async () => {
+        try {
+            const response = await axios.get('/api/scores');
+            console.log('Fetched scores:', response.data); // Debug log
+            setScores(response.data.scores);
+        } catch (error) {
+            console.error('Error fetching scores:', error);
+        }
+    };
+
     useEffect(() => {
-        const fetchScores = async () => {
-            try {
-                const response = await axios.get('/api/scores');
-                console.log('Fetched scores:', response.data); // Debug log
-                setScores(response.data.scores);
-            } catch (error) {
-                console.error('Error fetching scores:', error);
-            }
-        };
         fetchScores();
+        
+        // Listen for scores update events
+        const handleScoresUpdate = () => {
+            fetchScores();
+        };
+        
+        window.addEventListener('scoresUpdated', handleScoresUpdate);
+        
+        return () => {
+            window.removeEventListener('scoresUpdated', handleScoresUpdate);
+        };
     }, []);
 
     return (
@@ -30,9 +43,16 @@ const RecentScores = () => {
             <h2 className="text-xl font-bold mb-4">Recent Scores</h2>
             <ul className="space-y-2">
                 {scores.slice(0, 10).map((score, index) => (
-                    <li key={index} className="flex justify-between">
-                        <span>{new Date(score.timestamp).toLocaleString()}</span>
-                        <span>{score.score}</span>
+                    <li key={index} className="flex flex-col space-y-1">
+                        <div className="flex justify-between">
+                            <span className="text-sm">{new Date(score.timestamp).toLocaleString()}</span>
+                            <span className="font-bold">{score.score}</span>
+                        </div>
+                        {score.username && (
+                            <div className="text-xs text-gray-600 italic">
+                                by {score.username}
+                            </div>
+                        )}
                     </li>
                 ))}
             </ul>

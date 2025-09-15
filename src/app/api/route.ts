@@ -8,7 +8,7 @@ let gameState: GameState = {
 };
 
 export async function POST(req: NextRequest) {
-    const {direction} = await req.json();
+    const {direction, username} = await req.json();
 
     if (direction === 'reset') {
         gameState = {
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     gameState.score += moveResult.score;
 
     if (checkGameOver(gameState.board)) {
-        saveScore(gameState.score);
+        saveScore(gameState.score, username);
         return NextResponse.json({...gameState, gameOver: true});
     }
 

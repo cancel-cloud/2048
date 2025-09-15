@@ -6,6 +6,7 @@ import Head from 'next/head';
 import {GameState} from '@/helpers/gameLogic';
 import {detectDevice} from '@/helpers/utils';
 import RecentScores from "@/components/RecentScores";
+import UserProfile from "@/components/UserProfile";
 import Footer from "@/components/Footer";
 
 // @ts-ignore
@@ -31,6 +32,7 @@ const Home = () => {
     const [gameOver, setGameOver] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
+    const [currentUsername, setCurrentUsername] = useState<string>('');
 
     useEffect(() => {
         initializeGame();
@@ -90,19 +92,32 @@ const Home = () => {
         }
     };
 
+    // Function to get current username from localStorage
+    const getCurrentUsername = (): string => {
+        try {
+            return localStorage.getItem('username') || '';
+        } catch (error) {
+            console.warn('Error reading username from localStorage:', error);
+            return '';
+        }
+    };
+
     const handleMove = async (direction: string) => {
         if (isLoading) return; // Prevent moves while loading
         
         try {
             setIsLoading(true);
             setError(null);
-            const response = await axios.post<GameState>('/api', {direction});
+            const username = getCurrentUsername();
+            const response = await axios.post<GameState>('/api', {direction, username});
             console.log('API Response:', response.data);
             if (response.data && response.data.board) {
                 setBoard(response.data.board);
                 setScore(response.data.score);
                 if (response.data.gameOver) {
                     setGameOver(true);
+                    // Force refresh of scores to show the new entry
+                    window.dispatchEvent(new CustomEvent('scoresUpdated'));
                 }
             } else {
                 console.error('Invalid response structure:', response.data);
@@ -196,6 +211,7 @@ const Home = () => {
 
             <main className="flex flex-col items-center justify-center flex-1 px-4 text-center space-y-4 md:px-20">
                 <RecentScores/>
+                <UserProfile onUsernameChange={(newUsername) => setCurrentUsername(newUsername)}/>
                 <h1 className="text-4xl md:text-6xl font-bold text-2048-title">2048 Game</h1>
                 <div className="text-xl md:text-2xl text-2048-score">Score: {score}</div>
                 {renderBoard()}
