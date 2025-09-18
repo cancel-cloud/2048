@@ -26,7 +26,8 @@ export async function POST(req: NextRequest) {
         await store.addScore({
             timestamp,
             score: parseInt(score, 10),
-            username: username || undefined
+            username: username || undefined,
+            runId
         });
 
         // Track runId for idempotency (keep only last 1000)

@@ -3,7 +3,7 @@
 import {useEffect, useState, useCallback} from 'react';
 import axios from 'axios';
 import Head from 'next/head';
-import {GameState} from '@/helpers/gameLogic';
+import {GameState, GameStatus} from '@/helpers/gameLogic';
 import {detectDevice} from '@/helpers/utils';
 import RecentScores from "@/components/RecentScores";
 import UserProfile from "@/components/UserProfile";
@@ -27,13 +27,12 @@ const colors: { [key: number]: string } = {
 const Home = () => {
     const [board, setBoard] = useState<number[][]>([]);
     const [score, setScore] = useState<number>(0);
+    const [status, setStatus] = useState<GameStatus>("playing");
     const [autoMove, setAutoMove] = useState<boolean>(false);
     const [isMobile, setIsMobile] = useState<boolean>(false);
-    const [gameOver, setGameOver] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     const [currentUsername, setCurrentUsername] = useState<string>('');
-    const [scoreSavedThisSession, setScoreSavedThisSession] = useState<boolean>(false);
 
     // Function to get current username from localStorage
     const getCurrentUsername = (): string => {
@@ -45,40 +44,17 @@ const Home = () => {
         }
     };
 
-    const saveScoreToAPI = async (scoreToSave: number, username: string, runId?: string) => {
-        try {
-            await axios.post('/api/score', {
-                timestamp: new Date().toISOString(),
-                score: scoreToSave,
-                username: username || undefined,
-                runId
-            });
-            // Force refresh of scores to show the new entry
-            window.dispatchEvent(new CustomEvent('scoresUpdated'));
-        } catch (error) {
-            console.warn('Failed to save score:', error);
-        }
-    };
-
     const initializeGame = useCallback(async () => {
         try {
             setIsLoading(true);
             setError(null);
-            
-            // Save score on reset if score > 0 and not already saved this session
-            if (score > 0 && !scoreSavedThisSession) {
-                const username = getCurrentUsername();
-                await saveScoreToAPI(score, username, `reset-${Date.now()}`);
-                setScoreSavedThisSession(true);
-            }
             
             const response = await axios.post<GameState>('/api', {direction: 'reset'});
             console.log('API Response:', response.data);
             if (response.data && response.data.board) {
                 setBoard(response.data.board);
                 setScore(response.data.score);
-                setGameOver(false);
-                setScoreSavedThisSession(false); // Reset for new game session
+                setStatus(response.data.status);
             } else {
                 console.error('Invalid response structure:', response.data);
                 setError('Failed to initialize game. Please try again.');
@@ -89,7 +65,7 @@ const Home = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [score, scoreSavedThisSession]); // Removed currentUsername as it's accessed via getCurrentUsername()
+    }, []); // No dependencies needed since we removed score persistence from reset
 
     useEffect(() => {
         initializeGame();
@@ -102,7 +78,7 @@ const Home = () => {
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (!gameOver && !isLoading) {
+            if (status === "playing" && !isLoading) {
                 switch (event.key) {
                     case 'ArrowUp':
                         handleMove('up');
@@ -125,7 +101,7 @@ const Home = () => {
             window.removeEventListener('keydown', handleKeyDown);
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [gameOver, isLoading]);
+    }, [status, isLoading]);
 
     const handleMove = async (direction: string) => {
         if (isLoading) return; // Prevent moves while loading
@@ -139,29 +115,19 @@ const Home = () => {
             if (response.data && response.data.board) {
                 setBoard(response.data.board);
                 setScore(response.data.score);
-                if (response.data.gameOver) {
-                    setGameOver(true);
-                    setScoreSavedThisSession(true); // Mark as saved (API handles saving)
-                    // Force refresh of scores to show the new entry
+                setStatus(response.data.status);
+                
+                // If terminal state reached, refresh scoreboard (score was saved by API)
+                if (response.data.status === "won" || response.data.status === "lost") {
                     window.dispatchEvent(new CustomEvent('scoresUpdated'));
                 }
             } else {
                 console.error('Invalid response structure:', response.data);
-                // Treat invalid responses as potential game-over situations
-                // Save score before setting game over
-                const username = getCurrentUsername();
-                await saveScoreToAPI(score, username, `error-${Date.now()}`);
-                setGameOver(true);
-                setScoreSavedThisSession(true); // Mark as saved
+                setError('Failed to process move. Please try again.');
             }
         } catch (error) {
             console.error('Error handling move:', error);
-            // Treat network/API errors as potential game-over situations
-            // Save score before setting game over
-            const username = getCurrentUsername();
-            await saveScoreToAPI(score, username, `error-${Date.now()}`);
-            setGameOver(true);
-            setScoreSavedThisSession(true); // Mark as saved
+            setError('Failed to process move. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -213,40 +179,67 @@ const Home = () => {
     };
 
     const renderDeathScreen = () => {
-        return (
-            <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-                <div className="bg-white p-6 rounded-lg shadow-lg text-center max-w-sm mx-4">
-                    <h2 className="text-2xl font-bold mb-4 text-gray-800">Game Over</h2>
-                    <p className="mb-2 text-gray-600">No moves left. Final score has been saved.</p>
-                    <p className="mb-6 text-lg font-semibold text-gray-800">Your score: {score}</p>
-                    <div className="flex space-x-3 justify-center">
-                        <button
-                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-                            onClick={initializeGame}
-                        >
-                            Try Again
-                        </button>
-                        <button
-                            className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
-                            onClick={() => setGameOver(false)}
-                        >
-                            Close
-                        </button>
+        if (status === "lost") {
+            return (
+                <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+                    <div className="bg-white p-6 rounded-lg shadow-lg text-center max-w-sm mx-4">
+                        <h2 className="text-2xl font-bold mb-4 text-gray-800">Game Over</h2>
+                        <p className="mb-2 text-gray-600">No moves left. Final score has been saved.</p>
+                        <p className="mb-6 text-lg font-semibold text-gray-800">Your score: {score}</p>
+                        <div className="flex space-x-3 justify-center">
+                            <button
+                                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                                onClick={initializeGame}
+                            >
+                                Try Again
+                            </button>
+                            <button
+                                className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+                                onClick={() => setStatus("playing")}
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        );
+            );
+        } else if (status === "won") {
+            return (
+                <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+                    <div className="bg-white p-6 rounded-lg shadow-lg text-center max-w-sm mx-4">
+                        <h2 className="text-2xl font-bold mb-4 text-green-600">You Win!</h2>
+                        <p className="mb-2 text-gray-600">Congratulations! You reached 2048!</p>
+                        <p className="mb-6 text-lg font-semibold text-gray-800">Your score: {score}</p>
+                        <div className="flex space-x-3 justify-center">
+                            <button
+                                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+                                onClick={initializeGame}
+                            >
+                                New Game
+                            </button>
+                            <button
+                                className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+                                onClick={() => setStatus("playing")}
+                            >
+                                Continue
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        return null;
     };
 
     useEffect(() => {
-        if (autoMove && !gameOver && !isLoading) {
+        if (autoMove && status === "playing" && !isLoading) {
             const interval = setInterval(() => {
                 handleMove('best');
             }, 500);
             return () => clearInterval(interval);
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [autoMove, gameOver, isLoading]);
+    }, [autoMove, status, isLoading]);
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen py-2 bg-2048-bg">
@@ -264,7 +257,7 @@ const Home = () => {
                     <button
                         className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={() => handleMove('best')}
-                        disabled={isLoading || gameOver}
+                        disabled={isLoading || status !== "playing"}
                     >
                         {isLoading ? 'Processing...' : 'Next Move'}
                     </button>
@@ -281,7 +274,7 @@ const Home = () => {
                             className="form-checkbox h-5 w-5 text-green-600"
                             checked={autoMove}
                             onChange={() => setAutoMove(!autoMove)}
-                            disabled={isLoading || gameOver}
+                            disabled={isLoading || status !== "playing"}
                         />
                         <span className="ml-2 text-gray-700">Auto</span>
                     </label>
@@ -291,34 +284,34 @@ const Home = () => {
                         <button
                             className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50"
                             onClick={() => handleMove('up')}
-                            disabled={isLoading || gameOver}
+                            disabled={isLoading || status !== "playing"}
                         >
                             ↑
                         </button>
                         <button
                             className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50"
                             onClick={() => handleMove('left')}
-                            disabled={isLoading || gameOver}
+                            disabled={isLoading || status !== "playing"}
                         >
                             ←
                         </button>
                         <button
                             className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50"
                             onClick={() => handleMove('right')}
-                            disabled={isLoading || gameOver}
+                            disabled={isLoading || status !== "playing"}
                         >
                             →
                         </button>
                         <button
                             className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded button-hover disabled:opacity-50"
                             onClick={() => handleMove('down')}
-                            disabled={isLoading || gameOver}
+                            disabled={isLoading || status !== "playing"}
                         >
                             ↓
                         </button>
                     </div>
                 )}
-                {gameOver && renderDeathScreen()}
+                {(status === "won" || status === "lost") && renderDeathScreen()}
             </main>
             <Footer/>
         </div>
