@@ -4,10 +4,11 @@ export interface ScoreEntry {
     timestamp: string;
     score: number;
     username?: string;
+    runId?: string;
 }
 
 export interface ScoreStore {
-    addScore(entry: { timestamp: string; score: number; username?: string }): Promise<void>;
+    addScore(entry: { timestamp: string; score: number; username?: string; runId?: string }): Promise<void>;
     getRecent(limit?: number): Promise<ScoreEntry[]>;
     exportCSV(): Promise<string>;
 }
@@ -27,7 +28,7 @@ class VercelKVScoreStore implements ScoreStore {
         }
     }
 
-    async addScore(entry: { timestamp: string; score: number; username?: string }): Promise<void> {
+    async addScore(entry: { timestamp: string; score: number; username?: string; runId?: string }): Promise<void> {
         const csvLine = `${entry.timestamp},${entry.score}${entry.username ? `,${entry.username}` : ''}`;
         
         try {
@@ -89,7 +90,7 @@ class FileSystemScoreStore implements ScoreStore {
         this.filePath = filePath;
     }
 
-    async addScore(entry: { timestamp: string; score: number; username?: string }): Promise<void> {
+    async addScore(entry: { timestamp: string; score: number; username?: string; runId?: string }): Promise<void> {
         const fs = await import('fs');
         const path = await import('path');
         
@@ -162,7 +163,7 @@ class FileSystemScoreStore implements ScoreStore {
 class LocalStorageScoreStore implements ScoreStore {
     private readonly storageKey = '2048-scores';
 
-    async addScore(entry: { timestamp: string; score: number; username?: string }): Promise<void> {
+    async addScore(entry: { timestamp: string; score: number; username?: string; runId?: string }): Promise<void> {
         if (typeof window === 'undefined') {
             // Server-side, can't use localStorage
             console.warn('localStorage not available on server-side');
