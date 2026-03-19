@@ -15,7 +15,7 @@
     "fs": "^0.0.1-security",
     "lodash": "^4.17.23",
     "matrix-js": "^1.7.0",
-    "next": "16.1.6",
+    "next": "16.2.0",
     "react": "^18",
     "react-dom": "^18"
   },
