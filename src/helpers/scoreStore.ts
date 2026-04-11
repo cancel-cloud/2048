@@ -1,5 +1,8 @@
 // src/helpers/scoreStore.ts
 
+// Type-only import: stripped at runtime, safe in non-Vercel environments.
+import type { VercelKV } from '@vercel/kv';
+
 export interface ScoreEntry {
     timestamp: string;
     score: number;
@@ -14,54 +17,68 @@ export interface ScoreStore {
 }
 
 // Vercel KV Store implementation
+// Uses dynamic import() so it works with @vercel/kv v3 (ESM-only package).
 class VercelKVScoreStore implements ScoreStore {
-    private kv: any;
+    // Lazily resolved kv client; shared across method calls within an instance.
+    private kvCache: VercelKV | null = null;
 
-    constructor() {
-        // Dynamic import to handle environments where @vercel/kv is not available
-        try {
-            const { kv } = require('@vercel/kv');
-            this.kv = kv;
-        } catch (error) {
-            console.warn('Vercel KV not available, falling back to CSV');
-            throw error;
+    private async getKV(): Promise<VercelKV> {
+        if (this.kvCache) return this.kvCache;
+
+        // Validate required env vars before attempting the import.
+        if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+            throw new Error(
+                '[ScoreStore] Vercel KV is not configured. ' +
+                'Add KV_REST_API_URL and KV_REST_API_TOKEN to your project environment variables ' +
+                'by connecting a Vercel KV database at https://vercel.com/dashboard.'
+            );
         }
+
+        // Dynamic import works with ESM-only packages like @vercel/kv v3.
+        const { kv } = await import('@vercel/kv');
+        this.kvCache = kv;
+        return kv;
     }
 
     async addScore(entry: { timestamp: string; score: number; username?: string; runId?: string }): Promise<void> {
+        const kv = await this.getKV();
         const csvLine = `${entry.timestamp},${entry.score}${entry.username ? `,${entry.username}` : ''}`;
-        
+
         try {
-            // Add to recent scores list (keep last 100)
-            await this.kv.lpush('recent_scores', csvLine);
-            await this.kv.ltrim('recent_scores', 0, 99);
-            
-            // Add to leaderboard sorted set (optional for future use)
-            await this.kv.zadd('leaderboard', { score: entry.score, member: csvLine });
+            // Prepend to recent scores list and keep only the latest 100.
+            await kv.lpush('recent_scores', csvLine);
+            await kv.ltrim('recent_scores', 0, 99);
+
+            // Mirror to a sorted set for leaderboard queries (score as rank key).
+            await kv.zadd('leaderboard', { score: entry.score, member: csvLine });
         } catch (error) {
-            console.error('KV store error:', error);
+            console.error('[ScoreStore] KV write error:', error);
             throw error;
         }
     }
 
     async getRecent(limit: number = 20): Promise<ScoreEntry[]> {
+        const kv = await this.getKV();
+
         try {
-            const scoreLines = await this.kv.lrange('recent_scores', 0, limit - 1) || [];
-            return scoreLines.map((line: string) => this.parseScoreLine(line))
-                .filter((entry: ScoreEntry | null) => entry !== null) as ScoreEntry[];
+            const scoreLines: string[] = await kv.lrange('recent_scores', 0, limit - 1) ?? [];
+            return scoreLines
+                .map((line) => this.parseScoreLine(line))
+                .filter((entry): entry is ScoreEntry => entry !== null);
         } catch (error) {
-            console.error('KV read error:', error);
+            console.error('[ScoreStore] KV read error:', error);
             return [];
         }
     }
 
     async exportCSV(): Promise<string> {
+        const kv = await this.getKV();
+
         try {
-            const scoreLines = await this.kv.lrange('recent_scores', 0, -1) || [];
-            const header = 'timestamp,score,username\n';
-            return header + scoreLines.join('\n');
+            const scoreLines: string[] = await kv.lrange('recent_scores', 0, -1) ?? [];
+            return 'timestamp,score,username\n' + scoreLines.join('\n');
         } catch (error) {
-            console.error('KV export error:', error);
+            console.error('[ScoreStore] KV export error:', error);
             return 'timestamp,score,username\n';
         }
     }
@@ -70,14 +87,13 @@ class VercelKVScoreStore implements ScoreStore {
         try {
             const parts = line.split(',');
             if (parts.length < 2) return null;
-            
             return {
                 timestamp: parts[0],
                 score: parseInt(parts[1], 10),
-                username: parts[2] || undefined
+                username: parts[2] || undefined,
             };
-        } catch (error) {
-            console.warn('Failed to parse score line:', line, error);
+        } catch {
+            console.warn('[ScoreStore] Failed to parse score line:', line);
             return null;
         }
     }
@@ -93,55 +109,45 @@ class FileSystemScoreStore implements ScoreStore {
     async addScore(entry: { timestamp: string; score: number; username?: string; runId?: string }): Promise<void> {
         const fs = await import('fs');
         const path = await import('path');
-        
-        // Ensure directory exists
+
+        // Ensure directory exists before writing.
         const dir = path.dirname(this.filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
-        
+
         const csvLine = `${entry.timestamp},${entry.score}${entry.username ? `,${entry.username}` : ''}\n`;
-        
+
         try {
             fs.appendFileSync(this.filePath, csvLine);
         } catch (error) {
-            console.warn('Failed to write to filesystem, falling back to localStorage:', error);
-            // Fallback to localStorage
-            const localStore = new LocalStorageScoreStore();
-            await localStore.addScore(entry);
+            console.warn('[ScoreStore] Failed to write to filesystem:', error);
+            throw error;
         }
     }
 
     async getRecent(limit: number = 20): Promise<ScoreEntry[]> {
         const fs = await import('fs');
-        
-        try {
-            if (!fs.existsSync(this.filePath)) {
-                return [];
-            }
 
+        try {
+            if (!fs.existsSync(this.filePath)) return [];
             const data = fs.readFileSync(this.filePath, 'utf-8');
             return this.parseScoreData(data).slice(0, limit);
         } catch (error) {
-            console.warn('Failed to read from filesystem, falling back to localStorage:', error);
-            // Fallback to localStorage
-            const localStore = new LocalStorageScoreStore();
-            return await localStore.getRecent(limit);
+            console.warn('[ScoreStore] Failed to read from filesystem:', error);
+            return [];
         }
     }
 
     async exportCSV(): Promise<string> {
         const fs = await import('fs');
-        
-        try {
-            if (!fs.existsSync(this.filePath)) {
-                return 'timestamp,score,username\n';
-            }
 
+        try {
+            if (!fs.existsSync(this.filePath)) return 'timestamp,score,username\n';
             const data = fs.readFileSync(this.filePath, 'utf-8');
             return 'timestamp,score,username\n' + data;
         } catch (error) {
-            console.warn('Failed to export from filesystem:', error);
+            console.warn('[ScoreStore] Failed to export from filesystem:', error);
             return 'timestamp,score,username\n';
         }
     }
@@ -151,10 +157,11 @@ class FileSystemScoreStore implements ScoreStore {
             .filter(line => line.trim())
             .map(line => {
                 const parts = line.split(',');
-                const timestamp = parts[0];
-                const score = parseInt(parts[1], 10);
-                const username = parts[2] || undefined;
-                return { timestamp, score, username };
+                return {
+                    timestamp: parts[0],
+                    score: parseInt(parts[1], 10),
+                    username: parts[2] || undefined,
+                };
             })
             .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }
@@ -165,69 +172,60 @@ class LocalStorageScoreStore implements ScoreStore {
 
     async addScore(entry: { timestamp: string; score: number; username?: string; runId?: string }): Promise<void> {
         if (typeof window === 'undefined') {
-            // Server-side, can't use localStorage
-            console.warn('localStorage not available on server-side');
+            console.warn('[ScoreStore] localStorage is not available server-side.');
             return;
         }
 
         try {
             const existingScores = await this.getRecent(100);
-            const updatedScores = [entry, ...existingScores].slice(0, 100); // Keep only last 100 scores
+            const updatedScores = [entry, ...existingScores].slice(0, 100);
             localStorage.setItem(this.storageKey, JSON.stringify(updatedScores));
         } catch (error) {
-            console.warn('Failed to save to localStorage:', error);
+            console.warn('[ScoreStore] Failed to save to localStorage:', error);
         }
     }
 
     async getRecent(limit: number = 20): Promise<ScoreEntry[]> {
-        if (typeof window === 'undefined') {
-            // Server-side, return empty array
-            return [];
-        }
+        if (typeof window === 'undefined') return [];
 
         try {
             const data = localStorage.getItem(this.storageKey);
             if (!data) return [];
-            
             const scores = JSON.parse(data) as ScoreEntry[];
             return scores
                 .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
                 .slice(0, limit);
         } catch (error) {
-            console.warn('Failed to read from localStorage:', error);
+            console.warn('[ScoreStore] Failed to read from localStorage:', error);
             return [];
         }
     }
 
     async exportCSV(): Promise<string> {
-        const scores = await this.getRecent(1000); // Get more for export
-        const header = 'timestamp,score,username\n';
-        const rows = scores.map(score => 
-            `${score.timestamp},${score.score}${score.username ? `,${score.username}` : ''}`
+        const scores = await this.getRecent(1000);
+        const rows = scores.map(s =>
+            `${s.timestamp},${s.score}${s.username ? `,${s.username}` : ''}`
         );
-        return header + rows.join('\n');
+        return 'timestamp,score,username\n' + rows.join('\n');
     }
 }
 
-// Factory function to create appropriate store based on environment
+// Factory: returns the right store for the current environment.
+// On Vercel: always use KV (connection errors are caught at call time and logged clearly).
+// Locally: use the CSV file in the project root.
 export function createScoreStore(): ScoreStore {
-    // If running on Vercel, force KV usage
-    if (process.env.VERCEL === "1") {
-        try {
-            return new VercelKVScoreStore();
-        } catch (error) {
-            console.warn('KV not available in production, falling back to localStorage');
-            return new LocalStorageScoreStore();
-        }
+    if (process.env.VERCEL === '1') {
+        // VercelKVScoreStore validates env vars lazily; a missing KV_REST_API_URL /
+        // KV_REST_API_TOKEN will produce a clear error message at addScore() time.
+        return new VercelKVScoreStore();
     }
-    
-    // Local development: try CSV first, then fallback
-    const path = require('path');
-    const filePath = path.join(process.cwd(), 'scores.csv');
+
+    // Local development — write to scores.csv in the project root.
+    const filePath = `${process.cwd()}/scores.csv`;
     return new FileSystemScoreStore(filePath);
 }
 
-// For client-side only usage
+// For client-side only usage (browser).
 export function createLocalStorageStore(): ScoreStore {
     return new LocalStorageScoreStore();
 }
