@@ -1,12 +1,12 @@
 // src/helpers/gameLogic.ts
 
-import fs from 'fs';
-import path from 'path';
+export type GameStatus = "playing" | "won" | "lost";
 
 export interface GameState {
     board: number[][];
     score: number;
-    gameOver?: boolean;
+    status: GameStatus;
+    runId: string; // Unique identifier for each game session
 }
 
 export const generateInitialBoard = (): number[][] => {
@@ -14,6 +14,10 @@ export const generateInitialBoard = (): number[][] => {
     addRandomTile(board);
     addRandomTile(board);
     return board;
+};
+
+export const generateRunId = (): string => {
+    return `run-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 };
 
 export const addRandomTile = (board: number[][]): boolean => {
@@ -71,9 +75,8 @@ export const move = (board: number[][], direction: string): { board: number[][],
             break;
     }
 
-    if (moved) {
-        addRandomTile(rotated);
-    }
+    // Always spawn a tile after processing user input, regardless of whether the board changed
+    addRandomTile(rotated);
 
     return {board: rotated, score, moved};
 };
@@ -117,10 +120,16 @@ export const bestMove = (board: number[][]): string => {
     return directions[Math.floor(Math.random() * directions.length)];
 };
 
-export const saveScore = (score: number): void => {
-    const filePath = path.join(process.cwd(), 'scores.csv');
-    const csvLine = `${new Date().toISOString()},${score}\n`;
-    fs.appendFileSync(filePath, csvLine);
+// Check if the player has won (any tile reached 2048)
+export const checkWinCondition = (board: number[][]): boolean => {
+    for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+            if (board[r][c] >= 2048) {
+                return true;
+            }
+        }
+    }
+    return false;
 };
 
 export const checkGameOver = (board: number[][]): boolean => {
