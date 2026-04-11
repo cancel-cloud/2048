@@ -15,7 +15,6 @@ const RecentScores = () => {
     const fetchScores = async () => {
         try {
             const response = await axios.get('/api/scores');
-            console.log('Fetched scores:', response.data); // Debug log
             setScores(response.data.scores);
         } catch (error) {
             console.error('Error fetching scores:', error);

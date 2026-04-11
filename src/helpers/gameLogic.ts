@@ -1,8 +1,5 @@
 // src/helpers/gameLogic.ts
 
-import fs from 'fs';
-import path from 'path';
-
 export type GameStatus = "playing" | "won" | "lost";
 
 export interface GameState {
@@ -121,17 +118,6 @@ const slideAndMerge = (row: number[]): [number[], number, boolean] => {
 export const bestMove = (board: number[][]): string => {
     const directions = ['up', 'down', 'left', 'right'];
     return directions[Math.floor(Math.random() * directions.length)];
-};
-
-export const saveScore = async (score: number, username?: string): Promise<void> => {
-    const { createScoreStore } = await import('./scoreStore');
-    const store = createScoreStore();
-    const entry = {
-        timestamp: new Date().toISOString(),
-        score,
-        username
-    };
-    await store.addScore(entry);
 };
 
 // Check if the player has won (any tile reached 2048)
